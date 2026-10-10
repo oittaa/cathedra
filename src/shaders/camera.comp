@@ -1,0 +1,8 @@
+// CATHEDRA - once per frame: evaluate the camera path for this frame (U.x)
+// and the previous one (U.y) into the last 4 slots of the swarm buffer, so the
+// scene, the swarm and the TAA reprojection share one copy of the path code.
+void main(){
+  vec3 ro,ta; float r,f; int L=D.length()-4;
+  camera(U.x,ro,ta,r,f); D[L]=vec4(ro,r); D[L+1]=vec4(ta,f);
+  camera(U.y,ro,ta,r,f); D[L+2]=vec4(ro,r); D[L+3]=vec4(ta,f);
+}

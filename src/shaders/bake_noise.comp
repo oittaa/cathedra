@@ -1,0 +1,29 @@
+// CATHEDRA - bake a tileable 128^3 cloud/stone noise volume on the GPU.
+// R = Perlin-Worley, G/B/A = Worley fBm at 4, 8, 16 cells per tile.
+layout(local_size_x=8,local_size_y=8,local_size_z=8) in;
+layout(rgba8,set=0,binding=4) writeonly uniform image3D IMG;
+vec3 hv(ivec3 c, int s){ uint h=hu(uint(c.x)+hu(uint(c.y)+hu(uint(c.z)+uint(s)*977U))); return vec3(hf(h),hf(h^0x9e3779b9U),hf(h*3U+1U)); }
+float wor(vec3 p, int F, int s){
+  p*=float(F); ivec3 c=ivec3(floor(p)); vec3 f=fract(p); float d=1.;
+  for(int z=-1;z<=1;z++) for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++){
+    ivec3 o=ivec3(x,y,z); vec3 r=vec3(o)+hv((c+o+F)%F,s)-f; d=min(d,dot(r,r));
+  }
+  return clamp(1.-sqrt(d),0.,1.);
+}
+float per(vec3 p, int F, int s){
+  p*=float(F); ivec3 c=ivec3(floor(p)); vec3 f=fract(p), u=f*f*f*(f*(f*6.-15.)+10.);
+  float r[8];
+  for(int i=0;i<8;i++){ ivec3 o=ivec3(i&1,(i>>1)&1,i>>2); r[i]=dot(normalize(hv((c+o)%F,s+50)*2.-1.),f-vec3(o)); }
+  return mix(mix(mix(r[0],r[1],u.x),mix(r[2],r[3],u.x),u.y),mix(mix(r[4],r[5],u.x),mix(r[6],r[7],u.x),u.y),u.z);
+}
+float wf(vec3 p, int F){ return wor(p,F,F)*.625+wor(p,F*2,F+1)*.25+wor(p,F*4,F+2)*.125; }
+void main(){
+  ivec3 id=ivec3(gl_GlobalInvocationID);
+  vec3 p=(vec3(id)+.5)/128.;
+  float pf=0., a=1., ws=0.;
+  for(int i=0;i<5;i++){ pf+=a*per(p,4<<i,i); ws+=a; a*=.5; }
+  pf=clamp(pf/ws*1.1+.5,0.,1.);
+  float w4=wf(p,4);
+  float pw=clamp(w4+pf*(1.-w4)-.35,0.,1.)/.65;   // Perlin-Worley: billowy Perlin carved by Worley cells
+  imageStore(IMG,id,vec4(pw,w4,wf(p,8),wf(p,16)));
+}

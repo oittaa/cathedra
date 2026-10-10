@@ -1,0 +1,59 @@
+// CATHEDRA - bake the planet being taken apart into a 3D volume around it:
+// R = signed distance (crust relief, craters, ridges, an irregular open-pit rift
+// with eroded, terraced benches, radial canyons, strata ledges), G = heat (core,
+// mantle, magma veins, lava cracks), B = warped strata coordinate, A = terrain.
+layout(local_size_x=4,local_size_y=4,local_size_z=4) in;
+layout(rgba16f,set=0,binding=15) writeonly uniform image3D PO;
+const float PB=.82;
+vec3 hv3(vec3 c){ ivec3 i=ivec3(c); uint h=hu(uint(i.x)+hu(uint(i.y)*7U+hu(uint(i.z)*13U+5U))); return vec3(hf(h),hf(h^0x9e3779b9U),hf(h*3U+1U)); }
+vec2 wor(vec3 p){
+  vec3 c=floor(p), f=p-c; float a=9., b=9.;
+  for(int z=-1;z<=1;z++) for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++){
+    vec3 o=vec3(x,y,z), r=o+hv3(c+o)-f; float d=dot(r,r);
+    if(d<a){ b=a; a=d; } else b=min(b,d);
+  }
+  return sqrt(vec2(a,b));
+}
+// impact craters: bowl + raised rim, random radius per cell
+float crat(vec3 p){
+  vec3 c=floor(p), f=p-c; float h=0.;
+  for(int z=-1;z<=1;z++) for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++){
+    vec3 o=vec3(x,y,z), k=hv3(c+o+31.);
+    if(k.z>.55) continue;
+    float rc=.12+.3*k.x*k.x, d=length(o+hv3(c+o)-f)/rc;
+    h+=d<1.?(d*d-1.)*(.7+.3*k.y):0.;
+    h+=.32*exp(-(d-1.)*(d-1.)*14.);
+  }
+  return h;
+}
+void main(){
+  ivec3 id=ivec3(gl_GlobalInvocationID)+ivec3(0,0,int(U.x)), sz=imageSize(PO);
+  vec3 q=((vec3(id)+.5)/vec3(sz)*2.-1.)*PB;
+  float r=length(q); vec3 n=q/max(r,1e-4);
+  float th=acos(clamp(dot(n,RAX),-1.,1.));
+  float core=smoothstep(.27,.21,r), mant=smoothstep(.52,.24,r);
+  if(abs(r-PR)>.11&&(th>1.05||r>PR)){ imageStore(PO,id,vec4(r-PR,max(core,mant*.35),r,.5)); return; }
+  // crust relief: warped continents, ridged ranges, two crater populations, grit
+  vec3 w=n*2.2+(vec3(fbm(n*3.,4),fbm(n*3.+7.,4),fbm(n*3.+13.,4))-.5)*.9;
+  float cont=fbm(w*1.6+3.,6), rid=1.-abs(fbm(n*5.+11.,5)*2.-1.);
+  rid*=rid;
+  vec2 cw=wor(n*9.+2.);
+  float crack=smoothstep(.07,0.,cw.y-cw.x)*smoothstep(1.25,.55,th);
+  float h=(cont-.5)*.05+rid*rid*.03*smoothstep(.42,.6,cont)+crat(n*7.)*.011+crat(n*17.)*.0045+crat(n*41.)*.0018
+         +(fbm(n*44.,3)-.5)*.005-crack*.022;
+  float sf=r-(PR+h);
+  // the rift: irregular rim, benches cut in steps, eroded risers
+  float en=(fbm(n*5.+1.,4)-.5)*.3+(fbm(n*16.,3)-.5)*.08;
+  float thr=.6+en, s=th/thr;
+  float D=.52*pow(max(1.-s*s,0.),.65)+(fbm(q*26.,3)-.5)*.035*smoothstep(1.,.5,s);
+  float st=.03, wz=(fbm(q*7.+4.,3)-.5)*1.6+(fbm(q*19.,2)-.5)*.4, z=D/st+wz, Dq=(floor(z)+smoothstep(.62,1.,fract(z))-wz)*st;   // irregular, eroded benches
+  float carve=max((th-thr)*r,PR+h*.5-Dq-r);
+  float sc=r+(fbm(q*5.,3)-.5)*.06+.018*sin(q.x*7.+q.z*5.+q.y*3.);
+  float d=max(sf,-carve);
+  d-=.0022*sin(sc*230.)*smoothstep(1.15,.8,s)*smoothstep(.15,.3,r);   // strata ledges stand out of the walls
+  // heat: molten core, glowing mantle, magma veins through the pit, lava in the canyons
+  vec2 vw=wor(q*15.);
+  float vein=smoothstep(.06,0.,vw.y-vw.x)*smoothstep(.64,.36,r)*(.5+.5*fbm(q*9.,2));
+  float heat=max(max(core,mant*.35),max(vein,crack*.75*smoothstep(.0,.02,-sf+.01)));
+  imageStore(PO,id,vec4(d,heat,sc,cont));
+}

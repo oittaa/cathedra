@@ -1,0 +1,33 @@
+// CATHEDRA - bake the Dyson swarm. Most elements are collector panels laid
+// out in 48 rings: each ring has 2-5 lanes of evenly spaced panels, sector gaps,
+// its own material (photovoltaic / gold foil / mirror) and panel scale. Then free
+// statites (mirrors hovering on light pressure) and a little ember dust from the rift.
+layout(local_size_x=256) in;
+void main(){
+  uint i=gl_GlobalInvocationID.x, n=uint(D.length()-4)/2U;
+  if(i>=n) return;
+  float r1=hf(i*8U+1U),r2=hf(i*8U+2U),r3=hf(i*8U+3U),r4=hf(i*8U+4U),r5=hf(i*8U+5U),r6=hf(i*8U+6U);
+  uint nd=n/32U, ns=n/7U, m=n-nd-ns;
+  if(i<m){
+    uint f=i%48U, k=i/48U, per=m/48U;
+    float g0=hf(f*77U+4U), g1=hf(f*77U+5U), g2=hf(f*77U+6U), g3=hf(f*77U+7U), g4=hf(f*77U+8U), g5=hf(f*77U+9U);
+    uint L=2U+uint(g4*3.99);
+    float a=1.5+2.8*g0;
+    if(a>2.18&&a<2.42) a+=.3;                 // keep clear of the lattice shell
+    float cnt=float(per/L), j=float(k/L), lane=float(k%L);
+    float sp=6.2832*a/cnt, sz=sp*.27*(.75+.5*g3);
+    float an=(j+.5*mod(lane,2.))/cnt*6.2832;
+    sz*=.5+.8*r5;   // panel sizes vary within a ring
+    float seg=3.+floor(g2*7.), gp=.04+.1*g3;
+    if(fract(an/6.2832*seg+g1)<gp||k>=uint(cnt)*L) sz=0.;   // sector gaps: stars show through
+    D[2U*i]=vec4(a,(g1-.5)*2.6,g2*6.2832,an);
+    D[2U*i+1U]=vec4(sz,g5<.55?0.:g5<.8?.1:.2,.3*pow(a,-1.5),lane*2.-float(L-1U)+4.+r6*.99);   // w: lane slot + 4, hash in the fraction
+  } else if(i<n-nd){
+    float a=1.4+3.3*pow(r1,.7);
+    D[2U*i]=vec4(a,(r2-.5)*3.14,r3*6.2832,r4*6.2832);
+    D[2U*i+1U]=vec4(.0015+.006*r5*r5,.3,.04*pow(a,-1.5),r6);
+  } else {
+    D[2U*i]=vec4(r1,r2*6.2832,r3,r4);
+    D[2U*i+1U]=vec4(.0006+.0012*r5*r5,1.,.012+.02*r3,r6);
+  }
+}

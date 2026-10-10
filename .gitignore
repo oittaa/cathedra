@@ -1,0 +1,44 @@
+# CATHEDRA - generated / scratch files (sources, src/spirv.h, SHA256SUMS, docker/debs.lock and the
+# shots/ previews stay tracked)
+
+# build outputs
+build/*
+*.o
+cathedra_unpacked
+cathedra_upx
+cathedra_debug
+spirv.docker.h
+payload.lzma
+try.lzma
+
+# test runs, renders, frame dumps, YouTube export
+test_out/
+out*/
+renders/
+frames/
+export*/
+*.png
+!shots/**/*.png
+*.wav
+*.mp4
+*.mov
+rtcheck.csv
+lumacheck.csv
+cathedra_selftest.log
+
+# kit archives
+*.zip
+*.tgz
+*.tar
+*.tar.gz
+
+# python
+__pycache__/
+*.pyc
+
+# editor / OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store

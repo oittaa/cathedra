@@ -1,0 +1,33 @@
+#version 460
+// DEV BUILD ONLY (not in the 64k): GPU-side NaN/Inf + black-tile counter for --nancheck.
+// a.x = mip level, a.y = counter slot, a.z = mode (0: count NaN/Inf channels of every texel of
+// level a.x; 1: count 16x16 tiles that are exactly black, rows a.w .. height-a.w; 2: sum of the
+// 8-bit Rec.709 luma of every texel inside the letterbox, for --lumacheck), a.w = letterbox rows
+layout(local_size_x=16,local_size_y=16) in;
+layout(set=0,binding=0) uniform sampler2D S;
+layout(std430,set=0,binding=1) buffer CB{ uint cnt[]; };
+layout(push_constant) uniform P{ ivec4 a; } pc;
+shared uint LS;
+void main(){
+  if(pc.a.z==2){
+    if(gl_LocalInvocationIndex==0u) LS=0u;
+    barrier();
+    ivec2 sz=textureSize(S,0), g=ivec2(gl_GlobalInvocationID.xy)+ivec2(0,pc.a.w);
+    if(g.x<sz.x&&g.y<sz.y-pc.a.w) atomicAdd(LS,uint(dot(texelFetch(S,g,0).rgb,vec3(.2126,.7152,.0722))*255.+.5));
+    barrier();
+    if(gl_LocalInvocationIndex==0u) atomicAdd(cnt[pc.a.y],LS);
+    return;
+  }
+  ivec2 sz=textureSize(S,pc.a.x), g=ivec2(gl_GlobalInvocationID.xy);
+  if(pc.a.z==0){
+    if(any(greaterThanEqual(g,sz))) return;
+    uvec4 b=floatBitsToUint(texelFetch(S,g,pc.a.x))&0x7f800000u;
+    uint n=uint(b.x==0x7f800000u)+uint(b.y==0x7f800000u)+uint(b.z==0x7f800000u)+uint(b.w==0x7f800000u);
+    if(n>0u) atomicAdd(cnt[pc.a.y],n);
+  } else {
+    ivec2 o=g*16+ivec2(0,pc.a.w);
+    if(o.x+16>sz.x||o.y+16>sz.y-pc.a.w) return;
+    for(int y=0;y<16;y++) for(int x=0;x<16;x++) if(any(greaterThan(texelFetch(S,o+ivec2(x,y),0).rgb,vec3(0)))) return;
+    atomicAdd(cnt[pc.a.y],1u);
+  }
+}

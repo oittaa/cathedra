@@ -1,0 +1,7 @@
+*
+!build_linux.sh
+!tools/*.py
+!src/
+!docker/apt.sh
+!docker/debs.lock
+src/spirv.h

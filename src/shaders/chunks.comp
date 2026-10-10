@@ -1,0 +1,34 @@
+// CATHEDRA - per frame: transforms of the rock chunks torn out of the
+// planet's rift (instances 4.. of the finale's top-level acceleration structure).
+// A few boulders drift around the rim; the rest stream toward the star-lifters,
+// thinning out and shrinking (power-law sizes) as they go.
+layout(local_size_x=64) in;
+layout(std430,set=0,binding=20) buffer IBB{ float IB[]; };
+void main(){
+  uint i=gl_GlobalInvocationID.x;
+  if(i>=uint(U.y)) return;
+  float T=U.x, a=hf(i*5U), b=hf(i*5U+1U), c=hf(i*5U+2U), d=hf(i*5U+3U), e=hf(i*5U+4U);
+  vec3 p; float sz;
+  vec3 m0=PP+RAX*PR*.9, u=normalize(cross(RAX,vec3(0,1,0))), v=cross(RAX,u);
+  if(i%9U==0U){                     // slow boulders circling just outside the rim (the pit stays clear)
+    float an=b*6.2832+T*(.015+.02*c);
+    p=PP+RAX*(PR+.03+.12*d)+(u*cos(an)+v*sin(an))*(.42+.25*c);
+    sz=.003+.016*pow(a,5.);
+  } else {                          // the stream toward the star-lifters
+    float s=fract(a+T*(.004+.007*b));
+    vec3 dir=normalize(PP+RAX*PR);
+    float w=(.1*(1.-s)+.015)*sqrt(d);
+    p=mix(m0+RAX*.05,dir*1.2,pow(s,.85));
+    p.xz*=rot(-s*1.2);
+    vec3 sd=normalize(cross(dir,vec3(0,1,0))), up=cross(sd,dir);
+    p+=(sd*cos(c*6.28+s*24.)+up*sin(c*6.28+s*24.))*w;
+    sz=(.0012+.014*pow(e,4.))*(1.-.75*s)*step(s*.85,hf(i*7U+3U))*smoothstep(0.,.03,s);
+  }
+  sz=max(sz,1e-5);
+  vec3 ax=normalize(vec3(b,c,d)-.5); float an=T*(.15+.8*e)+a*20.;
+  float co=cos(an), si=sin(an);
+  mat3 M=mat3(co)+si*mat3(0,ax.z,-ax.y,-ax.z,0,ax.x,ax.y,-ax.x,0)+(1.-co)*outerProduct(ax,ax);
+  M*=sz; M[1]*=.6+.8*e;
+  uint o=(i+4U)*16U;
+  for(int r=0;r<3;r++){ IB[o+uint(r*4)]=M[0][r]; IB[o+uint(r*4+1)]=M[1][r]; IB[o+uint(r*4+2)]=M[2][r]; IB[o+uint(r*4+3)]=p[r]; }
+}

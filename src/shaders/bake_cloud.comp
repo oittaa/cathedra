@@ -1,0 +1,85 @@
+// CATHEDRA - bake the cloud sea (static in world space, so it can be lit once).
+// Mode 0: density = deck shape + the first erosion octave; near a tower the deck
+//         swells a little (the towers sink into the one continuous field - no sleeves).
+// Mode 1: lighting, per voxel: optical depth toward the sun (40 steps through the baked
+//         density), toward the sky (10 steps) and the tower shadow: U.y rays traced
+//         against the city BVH toward a jittered sun disc (soft penumbra).
+layout(local_size_x=8,local_size_y=4,local_size_z=8) in;
+layout(rgba16f,set=0,binding=11) uniform image3D CO;
+layout(set=0,binding=10) uniform sampler3D CL;
+layout(rgba16f,set=0,binding=22) uniform image3D GO;
+void main(){
+  if(U.w>1.5){
+    // Mode 2: city light volume (GI). Per voxel U.y rays over the sphere against the city BVH:
+    // a = open sky (upper hemisphere), rgb = one-bounce light: sun-lit stone seen along the ray
+    // (shadow ray from the hit) and the sun-lit cloud sea below - the warm canyon light.
+    ivec3 id=ivec3(gl_GlobalInvocationID)+ivec3(0,0,int(U.x)), sz=imageSize(GO);
+    if(any(greaterThanEqual(id,sz))) return;
+    vec3 p=GIO+(vec3(id)+.5)/vec3(sz)*GIS, sun=normalize(vec3(-.9,.15,.08)), acc=vec3(0);
+    float vis=0., hs=hf(uint(id.x*7919+id.y*104729+id.z*1299709)); int n=int(U.y);
+    for(int i=0;i<n;i++){
+      vec2 r=fract(vec2(.7548777,.5698403)*float(i+1)+hs);
+      float z=r.x*2.-1., s=sqrt(1.-z*z); vec3 d=vec3(s*cos(r.y*6.2832),z,s*sin(r.y*6.2832));
+      rayQueryEXT rq; rayQueryInitializeEXT(rq,TA,gl_RayFlagsOpaqueEXT,255U,p,0.,d,600.);
+      while(rayQueryProceedEXT(rq)){}
+      if(rayQueryGetIntersectionTypeEXT(rq,true)!=0U){
+        vec3 h=p+d*(rayQueryGetIntersectionTEXT(rq,true)-.4);
+        rayQueryEXT sq; rayQueryInitializeEXT(sq,TA,gl_RayFlagsTerminateOnFirstHitEXT|gl_RayFlagsOpaqueEXT,255U,h,0.,sun,2000.);
+        while(rayQueryProceedEXT(sq)){}
+        if(rayQueryGetIntersectionTypeEXT(sq,true)==0U) acc+=vec3(.68,.6,.5)*max(dot(-d,sun),0.)*2.;
+      } else if(d.y>0.) vis+=2.; else acc+=vec3(.42,.42,.44);
+    }
+    imageStore(GO,id,vec4(acc,vis)/float(n));
+    return;
+  }
+  ivec3 id=ivec3(gl_GlobalInvocationID)+ivec3(0,0,int(U.x)), sz=imageSize(CO);
+  vec3 tc=(vec3(id)+.5)/vec3(sz), p=CLO+tc*CLS;
+  if(U.w<.5){
+    float lift=0.; vec2 c0=floor(p.xz/CS-.5);
+    for(int j=0;j<4;j++){ vec4 P=pcell(c0+vec2(j&1,j>>1)); if(P.z>0.) lift=max(lift,smoothstep(P.w*2.5,0.,length(p.xz-P.xy)-P.w)); }
+    vec3 q=p-vec3(0,lift*7.,0);
+    // cumulus: the deck top is a field of rounded heaps at three scales (Worley domes of
+    // ~150, ~60 and ~25 units, squared toward the crowns so they read as round billows, not dunes),
+    // lifted or lowered in broad swells; a 3D Worley octave bulges the flanks (cauliflower, overhangs)
+    // and the top 6 units ramp the density (soft scattered edges instead of a hard snow crust).
+    // The climb tower (section 6) stands in a hollow, so its camera leaves the deck early as before.
+    // (No valley along the section 2 flight path: seen down the avenue it was a flat, empty floor;
+    // the camera skims the billow tops at 46-58 instead.)
+    vec2 x=q.xz;
+    float a=textureLod(W,vec3(x*.0017,.31),0.).g, c=textureLod(W,vec3(x*.0042,.67),0.).g, d=textureLod(W,vec3(x*.0105,.13),0.).g;
+    vec4 e=textureLod(W,q*.024,0.), P=pcell(vec2(1,-12));
+    float hz=-22.*smoothstep(110.,45.,length(x-P.xy))+4.+smoothstep(.25,.85,a)*16.+smoothstep(.3,.8,c)*9.+d*4.+nz(p*.004)*9.+(e.g-.45)*9.;
+    // the closed undercast below (no dark holes) rolls in heaps too: in the climb tower's hollow it was a flat floor
+    // (but not within ~50 m of that tower, where the climb's camera starts low: it would start inside cloud)
+    imageStore(CO,id,vec4(max(clamp((hz-q.y)/6.,0.,1.)*mix(1.,e.r,.35*smoothstep(-6.,2.,q.y-hz)),smoothstep(8.,0.,q.y-(smoothstep(.3,.8,c)*12.+d*5.)*smoothstep(35.,70.,length(x-P.xy))))*3.,0,0,0));
+  } else {
+    vec3 sun=normalize(vec3(-.9,.15,.08));
+    float d0=textureLod(CL,tc,0.).r, od=0., st=.6, t=.3, sk=0.;
+    for(int i=0;i<40;i++){
+      vec3 q=p+sun*t;
+      if(q.y>64.) break;
+      od+=textureLod(CL,(q-CLO)/CLS,0.).r*st; t+=st; st*=1.12;
+    }
+    // sky optical depth averaged over a 5-direction cone around the zenith: the ambient term then
+    // carries the self-shadowing of the billows (dark folds, lit crowns) - a cheap multi-scatter bake
+    for(int j=0;j<5;j++){
+      vec3 dd=normalize(vec3(j==1?1.:j==2?-1.:0.,1.2,j==3?1.:j==4?-1.:0.));
+      st=.5; t=.25;
+      for(int i=0;i<10;i++){ sk+=textureLod(CL,(p+dd*t-CLO)/CLS,0.).r*st*.2; t+=st; st*=1.4; }
+    }
+    float v=0.; int n=int(U.y);
+    // a voxel inside a tower (its own walls within 14 units both toward and away from the sun)
+    // is not shadowed by that tower, so the trilinear filter does not smear a dark sleeve around the base
+    rayQueryEXT iq; rayQueryInitializeEXT(iq,TA,gl_RayFlagsOpaqueEXT,255U,p,0.,-sun,14.);
+    while(rayQueryProceedEXT(iq)){}
+    float tin=rayQueryGetIntersectionTypeEXT(iq,true)!=0U?14.:0.;
+    for(int i=0;i<n;i++){
+      vec2 r=fract(vec2(.7548777,.5698403)*float(i+1)+hf(uint(id.x*7919+id.y*104729+id.z*1299709))*vec2(1.));
+      vec3 d=normalize(sun+(vec3(r,fract(r.x+r.y))-.5)*.05);
+      rayQueryEXT rq; rayQueryInitializeEXT(rq,TA,gl_RayFlagsTerminateOnFirstHitEXT|gl_RayFlagsOpaqueEXT,255U,p,tin,d,1500.);
+      while(rayQueryProceedEXT(rq)){}
+      v+=rayQueryGetIntersectionTypeEXT(rq,true)!=0U?0.:1.;
+    }
+    imageStore(CO,id,vec4(d0,od,sk,v/float(max(n,1))));
+  }
+}
